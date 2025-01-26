@@ -1,60 +1,57 @@
 #include "ObserverbasedAdmittance.h"
 
+#include <SpaceVecAlg/EigenTypedef.h>
+
 ObserverbasedAdmittance::ObserverbasedAdmittance(
     mc_rbdyn::RobotModulePtr rm, double dt, const mc_rtc::Configuration &config)
-    : mc_control::MCController(rm, dt) {
-
+    : mc_control::MCController(rm, dt),
+      getestimatedContactWrench_(Eigen::Vector6d::Zero()),
+      getestimatedExternalWrench_(Eigen::Vector6d::Zero()) {
   solver().addConstraintSet(contactConstraint);
   solver().addConstraintSet(kinematicsConstraint);
   solver().addTask(postureTask);
+  solver().setContacts({{}});
 
-  mc_rtc::log::success("ObserverbasedAdmittance init done ");
-}
-
-void ObserverbasedAdmittance::configure(const mc_control::MCController &ctl,
-                                        const mc_rtc::Configuration &config) {
   MaxContacts = config("MaxContacts", 4);
 
-  robot_ = config("robot", ctl.robot().name());
+  robot_ = config("robot", robot().name());
   if (config.has("exportValue")) {
     auto exportValueConfig = config("exportValue");
     if (exportValueConfig.has("exportContactWrench")) {
       exportValueConfig("exportContactWrench", exportContactWrench_);
     }
     if (exportValueConfig.has("exportExternalWrench")) {
-      exportValueConfig("exportExternaltWrench", exportExternalWrench_);
+      exportValueConfig("exportExternalWrench", exportExternalWrench_);
     }
   }
+  mc_rtc::log::info("exportContactWrench_: {}", exportContactWrench_);
+  mc_rtc::log::info("exportExternalWrench_: {}", exportExternalWrench_);
+
+  mc_rtc::log::success("ObserverbasedAdmittance init done ");
 }
 
-bool ObserverbasedAdmittance::run(mc_control::MCController &ctl) {
-
+bool ObserverbasedAdmittance::run() {
   if (exportContactWrench_) {
     for (int i = 0; i < MaxContacts; i++) {
-      //   if (ctl.datastore().has(
-      //           robot_ + "::estimatedContactWrench_" +
-      //           std::to_string(observer_.contactIndexNormal(i)))) {
-      //   auto &getEstimatedConWrench =
-      //     ctl.datastore().get<Eigen::Vector6d>(robot_ +
-      //     "::estimatedContactWrench_" +
-      //                         std::to_string(observer_.contactIndexNormal(i));
-
-      //     mc_rtc::log::info("Estimated Wrench {}: {}", i,
-      //     getEstimatedConWrench());
-      //   }
-      // };
-    }
-    if (exportExternalWrench_) {
-      if (ctl.datastore().has(robot_ + "::estimatedExternalWrench")) {
-        auto &getEstimatedExtWrench = ctl.datastore().get<Eigen::Vector6d>(
-            robot_ + "::estimatedExternalWrench");
-
-        mc_rtc::log::info("Estimated External Wrench: {}",
-                          getEstimatedExtWrench.transpose());
+      if (datastore().has(robot_ + "::estimatedContactWrench_" +
+                          std::to_string(i))) {
+        getestimatedContactWrench_ = datastore().get<Eigen::Vector6d>(
+            robot_ + "::estimatedContactWrench_" + std::to_string(i));
       }
-      return mc_control::MCController::run();
+
+      mc_rtc::log::info("[DATASTORE]Exporting estimatedContactWrench_{}: \n {}",
+                        i, getestimatedContactWrench_);
     }
   }
+  if (exportExternalWrench_) {
+    if (datastore().has(robot_ + "::estimatedExternalWrench")) {
+      getestimatedExternalWrench_ = datastore().get<Eigen::Vector6d>(
+          robot_ + "::estimatedExternalWrench");
+    }
+    mc_rtc::log::info("[DATASTORE]Exporting estimatedExternalWrench: \n {}",
+                      getestimatedExternalWrench_);
+  }
+  return mc_control::MCController::run();
 }
 
 void ObserverbasedAdmittance::reset(

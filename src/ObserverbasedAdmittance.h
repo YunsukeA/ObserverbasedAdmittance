@@ -1,6 +1,5 @@
 #pragma once
 
-#include "mc_state_observation/MCKineticsObserver.h"
 #include <mc_control/MCController.h>
 #include <mc_control/mc_controller.h>
 
@@ -11,10 +10,7 @@ struct ObserverbasedAdmittance_DLLAPI ObserverbasedAdmittance
   ObserverbasedAdmittance(mc_rbdyn::RobotModulePtr rm, double dt,
                           const mc_rtc::Configuration &config);
 
-  bool run(mc_control::MCController &ctl);
-
-  void configure(const mc_control::MCController &ctl,
-                 const mc_rtc::Configuration &config);
+  bool run() override;
 
   void reset(const mc_control::ControllerResetData &reset_data) override;
 
@@ -25,4 +21,6 @@ struct ObserverbasedAdmittance_DLLAPI ObserverbasedAdmittance
 
   bool exportContactWrench_;
   bool exportExternalWrench_;
+  Eigen::Vector6d getestimatedContactWrench_;
+  Eigen::Vector6d getestimatedExternalWrench_;
 };

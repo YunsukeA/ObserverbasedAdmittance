@@ -2,6 +2,7 @@
 
 #include <mc_control/MCController.h>
 #include <mc_control/mc_controller.h>
+#include <mc_tasks/EndEffectorTask.h>
 
 #include "api.h"
 
@@ -14,6 +15,8 @@ struct ObserverbasedAdmittance_DLLAPI ObserverbasedAdmittance
 
   void reset(const mc_control::ControllerResetData &reset_data) override;
 
+  std::shared_ptr<mc_tasks::EndEffectorTask> efTask;
+
   // std::string &usingObserver_;
   int MaxContacts;
   std::string robot_;
@@ -23,4 +26,9 @@ struct ObserverbasedAdmittance_DLLAPI ObserverbasedAdmittance
   bool exportExternalWrench_;
   Eigen::Vector6d getestimatedContactWrench_;
   Eigen::Vector6d getestimatedExternalWrench_;
+
+  void addToGUI();
+
+ protected:
+  double t_ = 0;
 };

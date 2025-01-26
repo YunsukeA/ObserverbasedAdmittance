@@ -7,11 +7,7 @@ ObserverbasedAdmittance::ObserverbasedAdmittance(
     : mc_control::MCController(rm, dt),
       getestimatedContactWrench_(Eigen::Vector6d::Zero()),
       getestimatedExternalWrench_(Eigen::Vector6d::Zero()) {
-  solver().addConstraintSet(contactConstraint);
-  solver().addConstraintSet(kinematicsConstraint);
-  solver().addTask(postureTask);
-  solver().setContacts({{}});
-
+  // Get values from DataStore
   MaxContacts = config("MaxContacts", 4);
 
   robot_ = config("robot", robot().name());
@@ -27,10 +23,22 @@ ObserverbasedAdmittance::ObserverbasedAdmittance(
   mc_rtc::log::info("exportContactWrench_: {}", exportContactWrench_);
   mc_rtc::log::info("exportExternalWrench_: {}", exportExternalWrench_);
 
+  // Endeffector Task
+  efTask = std::make_shared<mc_tasks::EndEffectorTask>("l_wrist", robots(), 0,
+                                                       10, 1000.0);
+  solver().addTask(efTask);
+
+  // contact surfaces
+  addContact({robot().name(), "ground", "LeftFoot", "AllGround"});
+  addContact({robot().name(), "ground", "RightFoot", "AllGround"});
+
   mc_rtc::log::success("ObserverbasedAdmittance init done ");
 }
 
 bool ObserverbasedAdmittance::run() {
+  auto pt = efTask->get_ef_pose();
+  efTask->set_ef_pose(
+      sva::PTransformd{sva::RotY(-M_PI / 2), Eigen::Vector3d{0.5, -0.5, 1.2}});
   if (exportContactWrench_) {
     for (int i = 0; i < MaxContacts; i++) {
       if (datastore().has(robot_ + "::estimatedContactWrench_" +
@@ -51,12 +59,31 @@ bool ObserverbasedAdmittance::run() {
     mc_rtc::log::info("[DATASTORE]Exporting estimatedExternalWrench: \n {}",
                       getestimatedExternalWrench_);
   }
+
+  t_ += timeStep;
+
   return mc_control::MCController::run();
 }
 
 void ObserverbasedAdmittance::reset(
     const mc_control::ControllerResetData &reset_data) {
+  efTask->reset();
+  // addToGUI();
   mc_control::MCController::reset(reset_data);
+}
+
+void ObserverbasedAdmittance::addToGUI() {
+  gui()->addPlot(
+      "Contact Estimation", mc_rtc::gui::plot::X("t", [this]() { return t_; }),
+      mc_rtc::gui::plot::Y(
+          "Force X", [this]() { return getestimatedContactWrench_[0]; },
+          mc_rtc::gui::Color::Red),
+      mc_rtc::gui::plot::Y(
+          "Force Y", [this]() { return getestimatedContactWrench_[1]; },
+          mc_rtc::gui::Color::Green),
+      mc_rtc::gui::plot::Y(
+          "Force Z", [this]() { return getestimatedContactWrench_[2]; },
+          mc_rtc::gui::Color::Blue));
 }
 
 CONTROLLER_CONSTRUCTOR("ObserverbasedAdmittance", ObserverbasedAdmittance)

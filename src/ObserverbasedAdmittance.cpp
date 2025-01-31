@@ -3,6 +3,7 @@
 #include <SpaceVecAlg/EigenTypedef.h>
 
 #include <SpaceVecAlg/SpaceVecAlg>
+#include <string>
 
 ObserverbasedAdmittance::ObserverbasedAdmittance(
     mc_rbdyn::RobotModulePtr rm, double dt, const mc_rtc::Configuration &config)
@@ -38,7 +39,10 @@ ObserverbasedAdmittance::ObserverbasedAdmittance(
 bool ObserverbasedAdmittance::run() {
   getestimatedContactWrench();
   getestimatedExternalWrench();
+  getForcesensorWrench();
+
   transformEstimatedWrenchs();
+  transformEstimatedWrenchs2();
 
   t_ += timeStep;
   // addToGUI();
@@ -107,59 +111,58 @@ void ObserverbasedAdmittance::getestimatedExternalWrench() {
   return;
 }
 
-void ObserverbasedAdmittance::addToGUI() {
-  gui()->addPlot(
-      "Contact_0 Estimation",
-      mc_rtc::gui::plot::X("t", [this]() { return t_; }),
-      mc_rtc::gui::plot::Y(
-          "Force X",
-          [this]() { return estimatedContactWrench_0_surface.force().x(); },
-          mc_rtc::gui::Color::Red),
-      mc_rtc::gui::plot::Y(
-          "Force Y",
-          [this]() { return estimatedContactWrench_0_surface.force().y(); },
-          mc_rtc::gui::Color::Green),
-      mc_rtc::gui::plot::Y(
-          "Force Z",
-          [this]() { return estimatedContactWrench_0_surface.force().z(); },
-          mc_rtc::gui::Color::Blue));
-}
+void ObserverbasedAdmittance::getForcesensorWrench() {
+  forcesensor_0 = robot().forceSensor("RightFootForceSensor").wrench();
+  forcesensor_1 = robot().forceSensor("LeftFootForceSensor").wrench();
+  forcesensor_2 = robot().forceSensor("RightHandForceSensor").wrench();
+  forcesensor_3 = robot().forceSensor("LeftHandForceSensor").wrench();
 
-void ObserverbasedAdmittance::addTologger() {
-  std::string category = "ObserverbasedAdmittance_";
-
-  logger().addLogEntry(category + "estimatedExternalWrench_raw",
-                       [this]() { return estimatedExternalWrench_centroid; });
-
-  logger().addLogEntry(category + "estimatedContactWrench_0",
-                       [this]() { return estimatedContactWrench_0_sensor; });
-  logger().addLogEntry(category + "estimatedContactWrench_1",
-                       [this]() { return estimatedContactWrench_1_sensor; });
-  logger().addLogEntry(category + "estimatedContactWrench_2",
-                       [this]() { return estimatedContactWrench_2_sensor; });
-  logger().addLogEntry(category + "estimatedContactWrench_3",
-                       [this]() { return estimatedContactWrench_3_sensor; });
+  return;
 }
 
 sva::ForceVecd
 ObserverbasedAdmittance::wrenchTransformation(  // surface frame to sensor frame
     const sva::ForceVecd wrench, const std::string surface,
     const std::string forceSensor) {
-  sva::PTransformd surfaceFrame = robot().frame(surface).position();
-  std::cout << "Surface Frame Position: "
-            << surfaceFrame.translation().transpose() << std::endl;
+  sva::PTransformd X_0_surface = robot().frame(surface).position();
+  std::cout << "Surface Frame Position: \n" << X_0_surface << "\n" << std::endl;
 
-  sva::PTransformd forceSensorFrame =
-      robot().forceSensor(forceSensor).X_0_f(robot());
-  std::cout << "Force Sensor Frame Position: "
-            << forceSensorFrame.translation().transpose() << std::endl;
+  sva::PTransformd X_0_ft = robot().forceSensor(forceSensor).X_0_f(robot());
+  std::cout << "Force Sensor Frame Position: \n" << X_0_ft << "\n" << std::endl;
 
-  sva::PTransformd pose = surfaceFrame.inv() * forceSensorFrame;
-  std::cout << "Pose: " << pose.translation().transpose() << std::endl;
+  sva::PTransformd X_surface_ft = X_0_ft * X_0_surface.inv();
+  std::cout << "Pose: \n" << X_surface_ft << "\n" << std::endl;
 
-  sva::ForceVecd wrench_out = pose.dualMul(wrench);
-  std::cout << "Transformed Wrench: " << wrench_out.force().transpose() << " "
-            << wrench_out.couple().transpose() << std::endl;
+  sva::ForceVecd wrench_out = X_surface_ft.dualMul(wrench);
+  std::cout << "Transformed Wrench: \n"
+            << wrench_out.force().transpose() << " "
+            << wrench_out.couple().transpose() << "\n"
+            << std::endl;
+
+  return wrench_out;
+}
+
+sva::ForceVecd
+ObserverbasedAdmittance::wrenchTransformation2(  // sensor frame to surface
+                                                 // frame
+    const sva::ForceVecd wrench, const std::string surface,
+    const std::string forceSensor) {
+  sva::PTransformd X_0_surface = robot().frame(surface).position();
+  // std::cout << "Surface Frame Position: \n" << X_0_surface << "\n" <<
+  // std::endl;
+
+  sva::PTransformd X_0_ft = robot().forceSensor(forceSensor).X_0_f(robot());
+  // std::cout << "Force Sensor Frame Position: \n" << X_0_ft << "\n" <<
+  // std::endl;
+
+  sva::PTransformd X_ft_surface = X_0_surface * X_0_ft.inv();
+  // std::cout << "Pose: \n" << X_ft_surface << "\n" << std::endl;
+
+  sva::ForceVecd wrench_out = X_ft_surface.dualMul(wrench);
+  // std::cout << "Transformed Wrench: \n"
+  //           << wrench_out.force().transpose() << " "
+  //           << wrench_out.couple().transpose() << "\n"
+  //           << std::endl;
 
   return wrench_out;
 }
@@ -196,6 +199,78 @@ void ObserverbasedAdmittance::transformEstimatedWrenchs() {
             << estimatedContactWrench_3_sensor.couple().transpose()
             << std::endl;
   std::cout << " " << std::endl;
+}
+
+void ObserverbasedAdmittance::transformEstimatedWrenchs2() {
+  forcesensor_0_surface =
+      wrenchTransformation2(forcesensor_0, "RightFoot", "RightFootForceSensor");
+
+  forcesensor_1_surface =
+      wrenchTransformation2(forcesensor_1, "LeftFoot", "LeftFootForceSensor");
+
+  forcesensor_3_surface = wrenchTransformation2(forcesensor_3, "LeftGripper",
+                                                "LeftHandForceSensor");
+
+  forcesensor_2_surface = wrenchTransformation2(forcesensor_2, "RightGripper",
+                                                "RightHandForceSensor");
+}
+
+/////////////////////////////////////////////////
+////////////////logging part/////////////////////
+/////////////////////////////////////////////////
+
+void ObserverbasedAdmittance::addToGUI() {
+  gui()->addPlot(
+      "Contact_0 Estimation",
+      mc_rtc::gui::plot::X("t", [this]() { return t_; }),
+      mc_rtc::gui::plot::Y(
+          "Force X",
+          [this]() { return estimatedContactWrench_0_surface.force().x(); },
+          mc_rtc::gui::Color::Red),
+      mc_rtc::gui::plot::Y(
+          "Force Y",
+          [this]() { return estimatedContactWrench_0_surface.force().y(); },
+          mc_rtc::gui::Color::Green),
+      mc_rtc::gui::plot::Y(
+          "Force Z",
+          [this]() { return estimatedContactWrench_0_surface.force().z(); },
+          mc_rtc::gui::Color::Blue));
+}
+
+void ObserverbasedAdmittance::addTologger() {
+  std::string category = "ObserverbasedAdmittance_";
+  std::string subcategory_est = "estimatedContactWrench_";
+  std::string subcategory_force = "forcesensor_";
+
+  logger().addLogEntry(category + "estimatedExternalWrench" + "_raw",
+                       [this]() { return estimatedExternalWrench_centroid; });
+
+  logger().addLogEntry(category + subcategory_est + "transformed_0",
+                       [this]() { return estimatedContactWrench_0_sensor; });
+  logger().addLogEntry(category + subcategory_est + "transformed_1",
+                       [this]() { return estimatedContactWrench_1_sensor; });
+  logger().addLogEntry(category + subcategory_est + "transformed_2",
+                       [this]() { return estimatedContactWrench_2_sensor; });
+  logger().addLogEntry(category + subcategory_est + "transformed_3",
+                       [this]() { return estimatedContactWrench_3_sensor; });
+
+  logger().addLogEntry(category + subcategory_est + "raw_0",
+                       [this]() { return estimatedContactWrench_0_surface; });
+  logger().addLogEntry(category + subcategory_est + "raw_1",
+                       [this]() { return estimatedContactWrench_1_surface; });
+  logger().addLogEntry(category + subcategory_est + "raw_2",
+                       [this]() { return estimatedContactWrench_2_surface; });
+  logger().addLogEntry(category + subcategory_est + "raw_3",
+                       [this]() { return estimatedContactWrench_3_surface; });
+
+  logger().addLogEntry(category + subcategory_force + "transformed_0",
+                       [this]() { return forcesensor_0_surface; });
+  logger().addLogEntry(category + subcategory_force + "transformed_1",
+                       [this]() { return forcesensor_1_surface; });
+  logger().addLogEntry(category + subcategory_force + "transformed_2",
+                       [this]() { return forcesensor_2_surface; });
+  logger().addLogEntry(category + subcategory_force + "transformed_3",
+                       [this]() { return forcesensor_3_surface; });
 }
 
 CONTROLLER_CONSTRUCTOR("ObserverbasedAdmittance", ObserverbasedAdmittance)
